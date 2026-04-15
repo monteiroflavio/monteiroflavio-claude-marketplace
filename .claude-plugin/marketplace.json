@@ -1,0 +1,14 @@
+{
+  "name": "contrix-marketplace",
+  "owner": {
+    "name": "Contrix Team"
+  },
+  "plugins": [
+    {
+      "name": "contrix-internal-skills",
+      "source": "./plugins/contrix-internal-skills",
+      "description": "Internal team skills: sync-main, fix-ci-failures",
+      "version": "1.0.0"
+    }
+  ]
+}
