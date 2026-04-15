@@ -7,8 +7,8 @@
     {
       "name": "contrix-internal-skills",
       "source": "./plugins/contrix-internal-skills",
-      "description": "Internal team skills: sync-main, fix-ci-failures",
-      "version": "1.0.0"
+      "description": "Internal team skills: sync-main, fix-ci-failures, create-pr",
+      "version": "1.1.0"
     }
   ]
 }
