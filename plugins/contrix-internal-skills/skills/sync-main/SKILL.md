@@ -133,6 +133,20 @@ Summarize what happened:
 
 ---
 
+## Step 7 — Offer to Push
+
+After reporting, ask the user via `AskUserQuestion` whether they want to push the updated branch to the remote.
+
+- If the branch has no upstream set, push with `git push -u origin <current-branch>`.
+- Otherwise, run `git push`.
+- Determine the current branch with `git rev-parse --abbrev-ref HEAD` and check upstream with `git rev-parse --abbrev-ref --symbolic-full-name @{u}` (failure means no upstream).
+- Never force-push. If the push is rejected (non-fast-forward), stop and report the error to the user — do not pass `--force` or `--force-with-lease` unless the user explicitly asks.
+- If the user declines, skip the push and end the flow.
+
+Report the push result (success or error output) back to the user.
+
+---
+
 ## Common Pitfalls
 
 - **Never use `git checkout --ours` or `--theirs` blindly** — always inspect the content first
