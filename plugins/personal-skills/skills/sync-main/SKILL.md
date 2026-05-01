@@ -27,7 +27,41 @@ Do NOT proceed if the working tree is dirty.
 
 ---
 
-## Step 2 — Fetch and Preview
+## Step 2 — Sync Current Branch with Remote
+
+Before merging origin/main, ensure the local branch is up-to-date with its own remote tracking branch.
+
+```bash
+git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null
+```
+
+- If the command **fails** (no upstream set), skip to Step 3 — there is nothing to sync.
+- If the command **succeeds**, check for incoming commits from the remote tracking branch:
+
+```bash
+git log HEAD..@{u} --oneline
+```
+
+- If there are no incoming commits, the branch is already in sync — proceed to Step 3.
+- If there are incoming commits, pull them with fast-forward only:
+
+```bash
+git pull --ff-only
+```
+
+  - If `--ff-only` **succeeds**, report the number of commits pulled and continue.
+  - If `--ff-only` **fails** (local and remote have diverged), **stop immediately** and tell the user:
+
+    > The local branch has diverged from its remote (`<upstream>`). Fast-forward is not possible.
+    > Please resolve the divergence manually before syncing with main:
+    > - `git pull --rebase` to rebase local commits on top of the remote
+    > - Or inspect with `git log --oneline --graph HEAD...@{u}` to understand the divergence
+
+    Do NOT proceed with the sync until the branch is in a fast-forward state with its remote.
+
+---
+
+## Step 3 — Fetch and Preview
 
 ```bash
 git fetch origin
@@ -38,26 +72,26 @@ Show the user how many commits are incoming. If `origin/main` is already merged 
 
 ---
 
-## Step 3 — Attempt the Merge
+## Step 4 — Attempt the Merge
 
 ```bash
 git merge origin/main --no-edit
 ```
 
 - If the merge succeeds with no conflicts → report success and the number of commits merged.
-- If the merge produces conflicts → proceed to Step 4.
+- If the merge produces conflicts → proceed to Step 5.
 
 ---
 
-## Step 4 — Conflict Resolution Loop
+## Step 5 — Conflict Resolution Loop
 
-### 4a. Identify conflicted files
+### 5a. Identify conflicted files
 
 ```bash
 git diff --name-only --diff-filter=U
 ```
 
-### 4b. For each conflicted file
+### 5b. For each conflicted file
 
 1. **Read the entire file** using the Read tool.
 2. **Parse all conflict hunks** — each hunk is delimited by:
@@ -85,7 +119,7 @@ git diff --name-only --diff-filter=U
 | **Configuration files** (`.env.example`, `docker-compose`, `tsconfig`) | Merge both sides additively; if a key conflicts, prefer theirs and note the override to the user |
 | **Genuinely ambiguous** (can't determine intent from context) | Use `AskUserQuestion` to show both versions and ask the user which to keep |
 
-### 4c. When to Escalate (AskUserQuestion)
+### 5c. When to Escalate (AskUserQuestion)
 
 Always ask the user when:
 - A deletion on one side conflicts with a meaningful edit on the other
@@ -107,7 +141,7 @@ Which should we keep, or should I combine them?
 
 ---
 
-## Step 5 — Complete the Merge
+## Step 6 — Complete the Merge
 
 After all files are resolved and staged:
 
@@ -123,7 +157,7 @@ git commit --no-edit
 
 ---
 
-## Step 6 — Report
+## Step 7 — Report
 
 Summarize what happened:
 - How many commits were merged
@@ -133,7 +167,7 @@ Summarize what happened:
 
 ---
 
-## Step 7 — Offer to Push
+## Step 8 — Offer to Push
 
 After reporting, ask the user via `AskUserQuestion` whether they want to push the updated branch to the remote.
 
