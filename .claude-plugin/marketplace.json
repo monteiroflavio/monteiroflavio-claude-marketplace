@@ -1,13 +1,13 @@
 {
-  "name": "contrix-marketplace",
+  "name": "monteiroflavio-marketplace",
   "owner": {
-    "name": "Contrix Team"
+    "name": "Flávio Monteiro"
   },
   "plugins": [
     {
-      "name": "contrix-internal-skills",
-      "source": "./plugins/contrix-internal-skills",
-      "description": "Internal team skills: sync-main, fix-ci-failures, create-pr",
+      "name": "personal-skills",
+      "source": "./plugins/personal-skills",
+      "description": "Personal skills: sync-main, fix-ci-failures, create-pr",
       "version": "1.1.0"
     }
   ]
