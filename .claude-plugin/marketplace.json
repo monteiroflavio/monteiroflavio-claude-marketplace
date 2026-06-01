@@ -7,7 +7,7 @@
     {
       "name": "personal-skills",
       "source": "./plugins/personal-skills",
-      "description": "Personal skills: sync-main, fix-ci-failures, create-pr",
+      "description": "Personal skills: sync-main, fix-ci-failures, create-pr, review-pr",
       "version": "1.1.0"
     }
   ]
