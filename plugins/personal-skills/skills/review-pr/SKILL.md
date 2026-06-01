@@ -50,8 +50,8 @@ gh pr diff $PR_NUMBER --repo $OWNER/$REPO
 # File list and PR metadata
 gh pr view $PR_NUMBER --repo $OWNER/$REPO --json files,headRefName,baseRefName,additions,deletions,changedFiles
 
-# PR status
-gh pr view $PR_NUMBER --repo $OWNER/$REPO --json state,isDraft,title,number
+# PR status and author
+gh pr view $PR_NUMBER --repo $OWNER/$REPO --json state,isDraft,title,number,author
 
 # Current authenticated user (needed to distinguish own comments from others')
 gh api user --jq .login
@@ -63,12 +63,41 @@ gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments \
 # Existing PR-level (non-inline) comments
 gh api repos/$OWNER/$REPO/issues/$PR_NUMBER/comments \
   --jq '[.[] | {id,body,author: .user.login}]'
+
+# Full review thread conversations with resolution status (GraphQL)
+gh api graphql -f query='
+query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100) {
+        nodes {
+          id
+          isResolved
+          comments(first: 20) {
+            nodes {
+              id
+              databaseId
+              body
+              path
+              line
+              originalLine
+              author { login }
+              createdAt
+            }
+          }
+        }
+      }
+    }
+  }
+}' -f owner="$OWNER" -f repo="$REPO" -F number=$PR_NUMBER
 ```
 
 Store:
 - `CURRENT_USER` — the login returned by `gh api user`
+- `PR_AUTHOR` — the `author.login` from the PR view JSON
 - `EXISTING_INLINE[]` — list of `{id, path, line, body, author}`
 - `EXISTING_GENERAL[]` — list of `{id, body, author}`
+- `REVIEW_THREADS[]` — list of `{id, isResolved, comments[{databaseId, body, path, line, author, createdAt}]}`
 
 From the diff, determine:
 - **Languages and tech stack** in use (TypeScript, Python, Go, etc.)
@@ -84,11 +113,45 @@ If the diff is empty or the PR cannot be fetched, stop and report the error.
 
 ---
 
+## Step 2.5 — Assess Open Thread States
+
+From `REVIEW_THREADS[]`, take all threads where `isResolved == false`.
+
+If there are no open threads, skip to Step 3.
+
+For each open thread, build a context entry:
+
+1. **Full conversation** — all comments in chronological order with author and body.
+2. **Relevant diff context** — extract the diff section matching the thread's `path` near the original `line`:
+   ```bash
+   gh pr diff $PR_NUMBER --repo $OWNER/$REPO -- <path>
+   ```
+
+**Do not filter by authorship.** Author identity is an unreliable signal — when `review-pr` and `address-pr-comments` are used together, replies may be posted by the same GitHub login regardless of which role (reviewer vs. author) originated the response. Classify each thread's state purely from its content.
+
+For each thread, apply a content-based state assessment:
+
+> Read the full comment chain (first comment + all replies). Then look at the diff context for that file and line.
+>
+> Determine the thread's conversational state as exactly one of:
+>
+> - **NEEDS_REVIEW** — The most recent substantive message in the thread comes from the PR author side: they notified a fix, pushed back, asked a question, or explained a decision. It is now the reviewer's turn to respond.
+> - **WAITING_FOR_AUTHOR** — The reviewer made a request, asked a question, or left a concern that has not yet been meaningfully responded to. Nothing to evaluate here — skip.
+> - **SETTLED** — The thread appears fully resolved by content (a fix was confirmed, both sides agreed, or the concern was withdrawn), even though it wasn't marked resolved on GitHub. Skip.
+>
+> When the state is ambiguous, default to **NEEDS_REVIEW** — a redundant evaluation comment is less harmful than silently ignoring an open concern.
+
+Store as `OPEN_THREADS_FOR_REVIEW[]` — threads classified as `NEEDS_REVIEW`, each with `{thread, fullConversation, relevantDiff}`.
+
+---
+
 ## Step 3 — Dispatch Specialist Review Agents in Parallel
 
 Use the `Agent` tool to run all applicable agents **simultaneously**. Pass each agent the full diff text and extra rules. Each agent must return findings in the structured format below.
 
-### Universal finding format (all agents must follow this exactly)
+Run Agents A–F unconditionally. Run Agent G only if `OPEN_THREADS_FOR_REVIEW` is non-empty — pass it the full thread list (with conversations and diff context) and the full diff.
+
+### Universal finding format (Agents A–F must follow this exactly)
 
 ```
 FINDING
@@ -249,9 +312,83 @@ Return multiple FINDING...END blocks, one per issue. If nothing is found in your
 
 ---
 
+### Agent G — Open Thread Response Evaluator
+
+> **Only run this agent if OPEN_THREADS_FOR_REVIEW is non-empty.**
+>
+> You are a senior engineer evaluating PR author responses to open review comment threads. For each thread, you receive the full conversation and the current diff context at the relevant file/line.
+>
+> Process each thread independently. Do not use author login as a signal — evaluate from content alone.
+>
+> ---
+>
+> **For each thread, follow this two-step process:**
+>
+> **Step 1 — Identify the nature of the author's latest response** by reading the conversation. Infer from what was said, not who said it. Classify as one of:
+>
+> - `CODE_FIX` — the response notifies that code was changed (e.g. "done", "fixed", "updated", "applied", or any statement clearly implying a commit was made in response to the concern).
+> - `PUSHBACK` — the response argues against the suggestion (e.g. "this is intentional", "I disagree because...", "we decided not to", "actually the reason is...").
+> - `QUESTION` — the response asks for clarification or more context from the reviewer.
+> - `PARTIAL` — the response addresses some aspects of the concern but explicitly or implicitly leaves others open.
+>
+> **Step 2 — Evaluate and produce an outcome:**
+>
+> **If `CODE_FIX`:**
+> - Look at the diff context at the thread's `path` near the original `line`.
+> - Determine whether the code change actually resolves the original concern — not just whether *something* changed, but whether the *right thing* changed.
+> - If fully resolved: outcome = `RESOLVED`. Write a brief one-sentence confirmation.
+> - If not fully resolved or the fix is incorrect: outcome = `NEEDS_MORE_WORK`. Specify exactly what is still missing or wrong.
+>
+> **If `PUSHBACK`:**
+> - Evaluate whether the author's argument is technically sound and addresses **all** aspects of the original concern.
+> - Consider: Is the argument based on correct assumptions? Does it address the root problem (not just the symptom)? Is there a trade-off the author is making consciously or overlooking?
+> - If the argument is valid and the original concern no longer stands: outcome = `ACCEPTED_PUSHBACK`. Write a brief acknowledgment.
+> - If the argument is invalid, incomplete, or based on incorrect assumptions: outcome = `INVALID_PUSHBACK`. Write a comprehensive explanation — address each point raised and explain precisely why the original concern persists. Be respectful but direct.
+>
+> **If `QUESTION`:**
+> - Provide a clear, direct answer.
+> - If the answer means no code change is needed, say so explicitly. If a code change is still required, reiterate what and where.
+> - Outcome = `ANSWERED`.
+>
+> **If `PARTIAL`:**
+> - List what was addressed and what remains.
+> - Outcome = `NEEDS_MORE_WORK`. Enumerate only the outstanding items with concrete next steps.
+>
+> ---
+>
+> Return one block per thread:
+>
+> ```
+> THREAD_EVAL
+> thread_id: <GraphQL thread id, e.g. PRT_...>
+> comment_id: <databaseId of the FIRST comment in the thread>
+> path: <file path from the thread>
+> nature: CODE_FIX | PUSHBACK | QUESTION | PARTIAL
+> outcome: RESOLVED | NEEDS_MORE_WORK | ACCEPTED_PUSHBACK | INVALID_PUSHBACK | ANSWERED
+> reply: <the reply to post — see reply templates below>
+> END
+> ```
+>
+> Reply templates:
+> - `RESOLVED`: `✅ **Addressed** — <one sentence confirming the fix resolves the original concern.>`
+> - `ACCEPTED_PUSHBACK`: `👍 **Fair point** — <acknowledgment of why the author's argument is valid. Add any nuance if relevant.>`
+> - `INVALID_PUSHBACK`: `🔄 **Still outstanding** — <comprehensive explanation of why the original concern persists, addressing each of the author's points directly. Then reiterate the suggested fix, adjusted if needed based on the context the author provided.>`
+> - `NEEDS_MORE_WORK`: `🔄 **Partially addressed** — Thanks for the update. Here's what still needs attention:\n\n- <item 1>\n- <item 2>\n\n<Concrete next steps.>`
+> - `ANSWERED`: `💬 **Clarification** — <direct answer to the author's question. State explicitly whether a code change is still needed.>`
+>
+> ---
+>
+> **OPEN_THREADS_FOR_REVIEW:**
+> OPEN_THREADS_PLACEHOLDER
+>
+> **DIFF:**
+> DIFF_PLACEHOLDER
+
+---
+
 ## Step 4 — Aggregate and Verify Findings
 
-Collect all FINDING...END blocks from every agent.
+Collect all FINDING...END blocks from Agents A–F.
 
 1. **De-duplicate across agents**: if two agents flagged the same file+line for related reasons, merge into one finding combining both perspectives.
 2. **Verify each BLOCKING finding**: confirm the flagged code is actually present in the diff. If a BLOCKING finding is unverifiable or is a false positive, downgrade to NAIL-POLISH or discard — do not post unverified blockers.
@@ -267,6 +404,8 @@ Collect all FINDING...END blocks from every agent.
 5. Separate into:
    - `BLOCKING_FINDINGS[]` — each tagged with action: NEW / REINFORCE / EDIT
    - `POLISH_FINDINGS[]` — each tagged with action: NEW / REINFORCE / EDIT
+
+Collect all THREAD_EVAL blocks from Agent G (if it ran) into `THREAD_EVALUATIONS[]`. Each entry carries `{thread_id, comment_id, path, nature, outcome, reply}`.
 
 ---
 
@@ -378,9 +517,46 @@ Post all BLOCKING comments first, then NAIL-POLISH.
 
 ---
 
+## Step 5.5 — Handle Open Thread Evaluations
+
+Skip this step if `THREAD_EVALUATIONS[]` is empty.
+
+For each entry in `THREAD_EVALUATIONS[]`, run sequentially:
+
+### 1. Post a reply to the thread
+
+```bash
+cat > /tmp/thread_reply.txt << 'REPLY'
+<reply from THREAD_EVAL>
+REPLY
+
+gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments \
+  --method POST \
+  --field commit_id="<head_commit_sha>" \
+  --field in_reply_to=<comment_id from THREAD_EVAL> \
+  --field body="$(cat /tmp/thread_reply.txt)"
+```
+
+### 2. Resolve the thread if the outcome warrants it
+
+Resolve the thread (via GraphQL) **only** when `outcome` is `RESOLVED` or `ACCEPTED_PUSHBACK`:
+
+```bash
+gh api graphql -f query='
+mutation($threadId: ID!) {
+  resolveReviewThread(input: {threadId: $threadId}) {
+    thread { id isResolved }
+  }
+}' -f threadId="<thread_id from THREAD_EVAL>"
+```
+
+Leave the thread **open** (do not resolve) when `outcome` is `NEEDS_MORE_WORK`, `INVALID_PUSHBACK`, or `ANSWERED` — the thread should stay visible until the author acts.
+
+---
+
 ## Step 6 — Post Final Review Decision
 
-After all inline comments are posted, submit the final review with one of the three verdicts below.
+After all inline comments and thread replies are posted, submit the final review with one of the three verdicts below.
 
 ### Verdict: BLOCKING findings exist → REQUEST_CHANGES
 
@@ -398,6 +574,9 @@ Reviewed the actual code changes. Found **<N> blocking issue(s)** that must be r
 
 ### Non-blocking suggestions
 <N nail-polish findings left inline — optional improvements>
+
+### Open threads
+<if THREAD_EVALUATIONS is non-empty: one bullet per thread — path:line, outcome, one-sentence summary. Skip this section if empty.>
 
 ---
 *Review based on code diff only — PR description was not used as source of truth.*
@@ -423,6 +602,9 @@ The implementation looks solid. Left <N> optional suggestion(s) inline — act o
 
 ### Highlights
 <2–3 genuine positives about the implementation — be specific>
+
+### Open threads
+<if THREAD_EVALUATIONS is non-empty: one bullet per thread — outcome and one-sentence summary. Skip this section if empty.>
 
 ---
 *Review based on code diff only — PR description was not used as source of truth.*
@@ -450,9 +632,9 @@ EOF
 
 ## Step 7 — Report to User
 
-One or two sentences. Example:
+One or two sentences covering both new findings and thread outcomes. Example:
 
-> Posted review on PR #123: requested changes on 4 blocking issues (2 architecture, 1 security, 1 test coverage) with 3 nail-polish suggestions.
+> Posted review on PR #123: requested changes on 4 blocking issues (2 architecture, 1 security, 1 test coverage) with 3 nail-polish suggestions. Handled 3 open threads: resolved 2 (code fixes verified), pushed back on 1 invalid argument.
 
 ---
 
@@ -469,3 +651,8 @@ One or two sentences. Example:
 | GitHub API rejects inline comment (line not in diff) | Fall back to PR-level comment, noting the file and line |
 | Duplicate findings from multiple agents | Merge into one comment before posting |
 | User-provided extra rules conflict with built-in rules | Apply the stricter rule; note the conflict in the comment |
+| GraphQL `reviewThreads` returns empty (old PR or API limit) | Skip Step 2.5 and Agent G; proceed with code review only |
+| Thread `resolveReviewThread` mutation fails | Log the error, leave the thread open, and note it in the user report |
+| Thread state is ambiguous (can't tell if it's NEEDS_REVIEW or WAITING_FOR_AUTHOR) | Default to `NEEDS_REVIEW` — a redundant evaluation reply is less harmful than silently skipping an open concern |
+| Author's response nature is ambiguous (can't classify as CODE_FIX, PUSHBACK, etc.) | Default to `PUSHBACK` evaluation — treat it as a textual argument and evaluate its validity |
+| Thread has many back-and-forth replies | Focus on the latest unresolved exchange to avoid re-litigating settled points; reference earlier context only if directly relevant |
