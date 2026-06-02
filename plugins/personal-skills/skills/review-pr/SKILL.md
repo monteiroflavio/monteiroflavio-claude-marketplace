@@ -63,41 +63,16 @@ gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments \
 # Existing PR-level (non-inline) comments
 gh api repos/$OWNER/$REPO/issues/$PR_NUMBER/comments \
   --jq '[.[] | {id,body,author: .user.login}]'
-
-# Full review thread conversations with resolution status (GraphQL)
-gh api graphql -f query='
-query($owner: String!, $repo: String!, $number: Int!) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $number) {
-      reviewThreads(first: 100) {
-        nodes {
-          id
-          isResolved
-          comments(first: 20) {
-            nodes {
-              id
-              databaseId
-              body
-              path
-              line
-              originalLine
-              author { login }
-              createdAt
-            }
-          }
-        }
-      }
-    }
-  }
-}' -f owner="$OWNER" -f repo="$REPO" -F number=$PR_NUMBER
 ```
+
+In parallel with the above, invoke `personal-skills:fetch-pr-threads` via Agent, passing the PR URL. Store the returned list as `REVIEW_THREADS[]`.
 
 Store:
 - `CURRENT_USER` — the login returned by `gh api user`
 - `PR_AUTHOR` — the `author.login` from the PR view JSON
 - `EXISTING_INLINE[]` — list of `{id, path, line, body, author}`
 - `EXISTING_GENERAL[]` — list of `{id, body, author}`
-- `REVIEW_THREADS[]` — list of `{id, isResolved, comments[{databaseId, body, path, line, author, createdAt}]}`
+- `REVIEW_THREADS[]` — list of `{id, isResolved, isOutdated, comments[{id, databaseId, body, path, line, originalLine, author, createdAt}], diffContext}` from `fetch-pr-threads`
 
 From the diff, determine:
 - **Languages and tech stack** in use (TypeScript, Python, Go, etc.)
@@ -115,17 +90,14 @@ If the diff is empty or the PR cannot be fetched, stop and report the error.
 
 ## Step 2.5 — Assess Open Thread States
 
-From `REVIEW_THREADS[]`, take all threads where `isResolved == false`.
+`REVIEW_THREADS[]` already contains only unresolved threads (filtered by `fetch-pr-threads`).
 
-If there are no open threads, skip to Step 3.
+If `REVIEW_THREADS[]` is empty, skip to Step 3.
 
-For each open thread, build a context entry:
+For each open thread, build a context entry using the data already returned by `fetch-pr-threads`:
 
 1. **Full conversation** — all comments in chronological order with author and body.
-2. **Relevant diff context** — extract the diff section matching the thread's `path` near the original `line`:
-   ```bash
-   gh pr diff $PR_NUMBER --repo $OWNER/$REPO -- <path>
-   ```
+2. **Relevant diff context** — use the `diffContext` field from `REVIEW_THREADS[]` (already fetched per-file by `fetch-pr-threads`).
 
 **Do not filter by authorship.** Author identity is an unreliable signal — when `review-pr` and `address-pr-comments` are used together, replies may be posted by the same GitHub login regardless of which role (reviewer vs. author) originated the response. Classify each thread's state purely from its content.
 
@@ -145,172 +117,14 @@ Store as `OPEN_THREADS_FOR_REVIEW[]` — threads classified as `NEEDS_REVIEW`, e
 
 ---
 
-## Step 3 — Dispatch Specialist Review Agents in Parallel
+## Step 3 — Run Specialist Checks and Evaluate Open Threads
 
-Use the `Agent` tool to run all applicable agents **simultaneously**. Pass each agent the full diff text and extra rules. Each agent must return findings in the structured format below.
+Use the `Agent` tool to run the following **simultaneously**:
 
-Run Agents A–F unconditionally. Run Agent G only if `OPEN_THREADS_FOR_REVIEW` is non-empty — pass it the full thread list (with conversations and diff context) and the full diff.
+**Analysis — `personal-skills:pr-reviewer` agent:**
+Pass the full diff and extra rules. Store returned `FINDING...END` blocks as `ALL_FINDINGS[]`.
 
-### Universal finding format (Agents A–F must follow this exactly)
-
-```
-FINDING
-severity: BLOCKING | NAIL-POLISH
-file: path/to/file.ts
-line: <line number in the new version of the file, or 0 if file-level>
-category: Code Quality | Security | Architecture | Test Coverage | API Schema | Regression
-problem: <what is wrong and why it matters — be specific, reference variable/function names>
-fix: <concrete suggestion; include a short code snippet when the fix is non-obvious>
-END
-```
-
-Return multiple FINDING...END blocks, one per issue. If nothing is found in your area, return: `NO_FINDINGS`.
-
----
-
-### Agent A — Code Quality & Completeness
-
-> You are a senior engineer reviewing a PR diff for code quality and completeness. Analyze the diff and return findings in the FINDING...END format.
->
-> **Check for:**
-> - Dead code or accidentally committed commented-out code
-> - Magic numbers/strings that should be named constants
-> - Functions violating Single Responsibility (doing too many things)
-> - Naming that doesn't convey intent (misleading names are BLOCKING; vague names are NAIL-POLISH)
-> - Incomplete implementations: `TODO`/`FIXME` without a ticket reference (BLOCKING if in an active code path, NAIL-POLISH otherwise)
-> - Missing null/undefined guards that will cause runtime errors (BLOCKING)
-> - Duplicate logic that already exists elsewhere in the same diff
-> - Partial renames — changed in one place but not all occurrences in the diff
-> - Console.log / debug print statements committed (NAIL-POLISH unless they expose sensitive data)
->
-> **Extra rules:** EXTRA_RULES_PLACEHOLDER
->
-> **DIFF:**
-> DIFF_PLACEHOLDER
-
----
-
-### Agent B — Security
-
-> You are a security engineer reviewing a PR diff. Return findings in the FINDING...END format.
->
-> **Check for:**
-> - Injection vulnerabilities: SQL/NoSQL/command injection via string interpolation (BLOCKING)
-> - XSS: unsanitized user input rendered as HTML (BLOCKING)
-> - IDOR: endpoints that don't verify resource ownership before returning data (BLOCKING)
-> - Missing or incorrect authentication/authorization guards on new endpoints (BLOCKING)
-> - Sensitive data (tokens, passwords, PII) returned in response bodies or logged (BLOCKING)
-> - Hardcoded credentials or secrets in code or config files (BLOCKING)
-> - Unvalidated/unsanitized input accepted from external sources (BLOCKING)
-> - Insecure HTTP methods (GET with side effects, state-changing operations without idempotency) (NAIL-POLISH)
-> - Missing rate limiting on new public endpoints (NAIL-POLISH)
-> - CORS, CSP, or security header regressions (BLOCKING if header removed, NAIL-POLISH if merely not added)
->
-> **Extra rules:** EXTRA_RULES_PLACEHOLDER
->
-> **DIFF:**
-> DIFF_PLACEHOLDER
-
----
-
-### Agent C — Backend Architecture (Layering)
-
-> You are a backend architect reviewing a PR for architecture and layering compliance. Return findings in the FINDING...END format.
->
-> **First, infer the architecture from the diff:**
-> - Look at directory names, file names, decorators, imports, and class names to understand what layering pattern the project follows (e.g. Controller → Service → Repository, MVC, Clean Architecture, Hexagonal, etc.)
-> - If no clear layering pattern exists, skip architecture findings and focus only on obvious cross-cutting concerns (e.g. HTTP logic in a persistence file).
->
-> **If a layered backend architecture is detected, enforce it:**
->
-> Expected call flow (adapt to the project's actual naming):
-> ```
-> HTTP Request → DTO/Request Schema → Controller → Service → Domain/Business Object → Repository → DB Model/Entity
->                                                                                     ← DB Model/Entity
->                                              ← Domain/Business Object ← Repository
->                              ← DTO/Response Schema ← Service
->         HTTP Response ← Controller
-> ```
->
-> **Rules (all violations are BLOCKING):**
-> - HTTP/framework-specific code (request parsing, response serialization) belongs only in the outermost layer (controller/handler/route).
-> - Business logic belongs only in the service/use-case layer — not in controllers, repositories, or DB models.
-> - Persistence logic belongs only in the repository/data-access layer — controllers and services must not directly query the DB.
-> - DB models/entities must not be returned from services — map them to domain objects or response schemas first.
-> - DTOs/request-response schemas belong only at the HTTP boundary — they must not leak into inner layers.
-> - Even if pre-existing code in the same file violated these rules, **new lines added in this diff** must comply.
->
-> **Extra rules:** EXTRA_RULES_PLACEHOLDER
->
-> **DIFF:**
-> DIFF_PLACEHOLDER
-
----
-
-### Agent D — API Schema Generation Compliance
-
-> You are a frontend/API engineer reviewing a PR for API schema compliance. Return findings in the FINDING...END format.
->
-> **First, detect whether the project uses an API client generation tool:**
-> - Look for config files like `orval.config.ts`, `openapi-generator-config.json`, `swagger-codegen.json`, or similar.
-> - Look for generated files (typically in directories named `generated/`, `api/generated/`, `__generated__/`, or similar).
-> - If no code generation tooling is detected, return `NO_FINDINGS`.
->
-> **If API code generation is in use, enforce it:**
-> - Types that represent API request/response shapes MUST come from the generated files, not be written manually.
-> - Signs of a manual schema violation: interfaces/types named like `CreateXxxDto`, `XxxResponse`, `ApiPayload` defined outside the generated directory; `fetch`/`axios`/`http` calls with manually-typed response shapes; types that look copy-pasted from API documentation.
-> - The generated client (hooks, query functions, API methods) MUST be used to call API endpoints — raw HTTP calls that bypass the generated layer are BLOCKING.
-> - If new API routes are consumed but the generated client has no corresponding function, flag it as BLOCKING (regeneration needed, not a manual workaround).
-> - Modifying generated files by hand is BLOCKING — they will be overwritten on next generation.
->
-> **Extra rules:** EXTRA_RULES_PLACEHOLDER
->
-> **DIFF:**
-> DIFF_PLACEHOLDER
-
----
-
-### Agent E — Test Coverage
-
-> You are a QA engineer reviewing a PR for test coverage. Return findings in the FINDING...END format.
->
-> **Rules:**
-> - Every new function, method, or class containing business logic MUST have at least one test in the same PR. Missing test = BLOCKING.
-> - Deleted tests or tests changed to `.skip`/`.todo`/`xtest`/`xit` are BLOCKING unless the tested code was also deleted.
-> - Significant logic change with no corresponding test update = BLOCKING (regression risk).
-> - Tests with trivially-passing or vacuous assertions (e.g. `expect(true).toBe(true)`, empty test body) = BLOCKING.
-> - Missing edge case coverage for security-sensitive paths (auth, permissions, input validation) = BLOCKING.
-> - Missing test for a pure utility function with no side effects = NAIL-POLISH.
-> - Test file naming or organization inconsistency with the rest of the project = NAIL-POLISH.
->
-> **Extra rules:** EXTRA_RULES_PLACEHOLDER
->
-> **DIFF:**
-> DIFF_PLACEHOLDER
-
----
-
-### Agent F — Regression & Completeness
-
-> You are a senior engineer reviewing a PR for regressions and completeness gaps. Return findings in the FINDING...END format.
->
-> **Check for:**
-> - Import changed/removed but the consuming code in the diff was not updated (BLOCKING)
-> - Function signature changed but not all call sites visible in the diff were updated (BLOCKING)
-> - API contract changed (endpoint path, method, request/response shape) without updating known consumers (BLOCKING)
-> - Environment variable added but missing from `.env.example` or equivalent documentation file (NAIL-POLISH)
-> - Database migration added without a corresponding rollback/down migration (BLOCKING if the project uses reversible migrations)
-> - Feature flag introduced without a cleanup ticket reference in a comment (NAIL-POLISH)
-> - Config keys renamed/removed without updating all config files in the diff (BLOCKING)
-> - Exported symbol removed without a deprecation path or replacement (BLOCKING)
-> - Breaking change to a shared interface/type used by modules not visible in this diff (BLOCKING)
->
-> **Extra rules:** EXTRA_RULES_PLACEHOLDER
->
-> **DIFF:**
-> DIFF_PLACEHOLDER
-
----
+**Open threads (only if `OPEN_THREADS_FOR_REVIEW` is non-empty) — Agent G:**
 
 ### Agent G — Open Thread Response Evaluator
 
