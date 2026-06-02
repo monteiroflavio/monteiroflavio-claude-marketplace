@@ -75,33 +75,9 @@ gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments \
 # PR-level (non-inline) comments
 gh api repos/$OWNER/$REPO/issues/$PR_NUMBER/comments \
   --jq '[.[] | {id, body, author: .user.login, created_at}]'
-
-# Review thread resolution state via GraphQL
-gh api graphql -f query='
-{
-  repository(owner: "'$OWNER'", name: "'$REPO'") {
-    pullRequest(number: '$PR_NUMBER') {
-      reviewThreads(first: 100) {
-        nodes {
-          id
-          isResolved
-          isOutdated
-          comments(first: 20) {
-            nodes {
-              databaseId
-              body
-              path
-              line
-              author { login }
-              createdAt
-            }
-          }
-        }
-      }
-    }
-  }
-}'
 ```
+
+In parallel with the above, invoke `personal-skills:fetch-pr-threads` via Agent, passing the PR URL. Store the returned list as `THREADS[]`.
 
 Store:
 - `CURRENT_USER` — login from `gh api user`
@@ -109,23 +85,23 @@ Store:
 - `HEAD_BRANCH` — the `headRefName`
 - `INLINE_COMMENTS[]` — all inline comments
 - `GENERAL_COMMENTS[]` — all PR-level comments
-- `THREADS[]` — from GraphQL: `{id, isResolved, isOutdated, comments[]}`
+- `THREADS[]` — list of `{id, isResolved, isOutdated, comments[{id, databaseId, body, path, line, originalLine, author, createdAt}], diffContext}` from `fetch-pr-threads`
 
 ---
 
 ## Step 3 — Filter and Build Thread Map
 
-From `THREADS[]`, discard threads where `isResolved == true`.
+`THREADS[]` already contains only unresolved threads (filtered by `fetch-pr-threads`). Each thread also carries a `diffContext` field with the per-file diff — use it instead of re-fetching.
 
-For each remaining open thread:
+For each thread:
 - Identify the **root comment** (the one that started the thread, not a reply)
 - Collect all **replies** in chronological order, preserving author and body for each
 
-Do **not** filter threads based on who posted last. Authorship alone is an unreliable signal — when `review-pr` is used, all comments originate from `CURRENT_USER`, making author-based filtering useless. Instead, assess each thread's state from its content.
+Do **not** filter threads based on who posted last — assess each thread's state from its content.
 
 For each thread, run a content-based state assessment:
 
-> Read the full comment chain (root + all replies) for this thread. Then read the current state of the file at the commented location.
+> Read the full comment chain (root + all replies) for this thread. Use the `diffContext` from the thread and read the current state of the file at the commented location.
 >
 > Determine the thread's state as exactly one of:
 >
