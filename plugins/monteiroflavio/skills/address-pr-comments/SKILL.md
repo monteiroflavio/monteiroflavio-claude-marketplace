@@ -77,7 +77,7 @@ gh api repos/$OWNER/$REPO/issues/$PR_NUMBER/comments \
   --jq '[.[] | {id, body, author: .user.login, created_at}]'
 ```
 
-In parallel with the above, invoke `personal-skills:fetch-pr-threads` via Agent, passing the PR URL. Store the returned list as `THREADS[]`.
+In parallel with the above, invoke `monteiroflavio:fetch-pr-threads` via Agent, passing the PR URL. Store the returned list as `THREADS[]`.
 
 Store:
 - `CURRENT_USER` — login from `gh api user`
@@ -411,5 +411,5 @@ Call out any `BLOCKED_BY_GATES` clusters explicitly — the user needs to decide
 | Reviewer has multiple threads open on the same line | Merge them into one cluster entry; post a single reply covering all points |
 | Extra context from user contradicts a NEEDS_FIX classification | Reclassify as DISAGREE and use the user's context as the rationale |
 | PR is already merged | Note it; still post replies (useful historical record) — skip the commit/push step |
-| Push is rejected (non-fast-forward) | Stop; tell the user to sync first (see `personal-skills:sync-main`) |
+| Push is rejected (non-fast-forward) | Stop; tell the user to sync first (see `monteiroflavio:sync-main`) |
 | Git working tree is dirty before committing | Stop; ask user to commit or stash before running this skill |

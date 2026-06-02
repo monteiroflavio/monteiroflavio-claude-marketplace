@@ -65,7 +65,7 @@ gh api repos/$OWNER/$REPO/issues/$PR_NUMBER/comments \
   --jq '[.[] | {id,body,author: .user.login}]'
 ```
 
-In parallel with the above, invoke `personal-skills:fetch-pr-threads` via Agent, passing the PR URL. Store the returned list as `REVIEW_THREADS[]`.
+In parallel with the above, invoke `monteiroflavio:fetch-pr-threads` via Agent, passing the PR URL. Store the returned list as `REVIEW_THREADS[]`.
 
 Store:
 - `CURRENT_USER` — the login returned by `gh api user`
@@ -121,7 +121,7 @@ Store as `OPEN_THREADS_FOR_REVIEW[]` — threads classified as `NEEDS_REVIEW`, e
 
 Use the `Agent` tool to run the following **simultaneously**:
 
-**Analysis — `personal-skills:pr-reviewer` agent:**
+**Analysis — `monteiroflavio:pr-reviewer` agent:**
 Pass the full diff and extra rules. Store returned `FINDING...END` blocks as `ALL_FINDINGS[]`.
 
 **Open threads (only if `OPEN_THREADS_FOR_REVIEW` is non-empty) — Agent G:**

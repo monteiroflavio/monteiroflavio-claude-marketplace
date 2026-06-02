@@ -5,10 +5,10 @@
   },
   "plugins": [
     {
-      "name": "personal-skills",
-      "source": "./plugins/personal-skills",
+      "name": "monteiroflavio",
+      "source": "./plugins/monteiroflavio",
       "description": "Personal skills: sync-main, fix-ci-failures, create-pr, review-pr",
-      "version": "1.1.0"
+      "version": "1.2.0"
     }
   ]
 }

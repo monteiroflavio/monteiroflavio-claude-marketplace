@@ -6,12 +6,12 @@ Personal Claude Code marketplace with reusable skills and plugins.
 
 ```
 /plugin marketplace add monteiroflavio/monteiroflavio-claude-marketplace
-/plugin install personal-skills@monteiroflavio-marketplace
+/plugin install monteiroflavio@monteiroflavio-marketplace
 ```
 
 ## Plugins
 
-- **personal-skills** — bundles the `sync-main`, `fix-ci-failures`, `create-pr`, and `git-worktree` skills.
+- **monteiroflavio** — bundles the `sync-main`, `fix-ci-failures`, `create-pr`, and `git-worktree` skills.
 
 ## Adding a skill to an existing plugin
 
