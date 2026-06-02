@@ -30,6 +30,7 @@ Act as the PR author responding to a code review. Read the code — not the PR d
 Extract from the user message:
 1. **PR URL** — e.g. `https://github.com/owner/repo/pull/123`
 2. **Extra context** — any guidance from the user (e.g. "don't touch the auth module", "we agreed with the reviewer on X")
+3. **`--include-non-blocking`** flag — present if the user explicitly passes it; absent by default
 
 Derive:
 ```
@@ -37,6 +38,7 @@ OWNER=<owner>
 REPO=<repo>
 PR_NUMBER=<number>
 EXTRA_CONTEXT=<extra context, or "none">
+INCLUDE_NON_BLOCKING=<true | false>  # default: false
 ```
 
 ---
@@ -130,12 +132,15 @@ For each thread, run a content-based state assessment:
 > - **NEEDS_ACTION** — The reviewer's concern is still unaddressed in the code, or their question hasn't been answered. Action is required.
 > - **ALREADY_HANDLED** — A reply in the thread already fully resolves the concern (a fix was applied and confirmed, or a complete explanation was given) AND the current code confirms it. No further action needed; do not post a duplicate reply.
 > - **WAITING_ON_REVIEWER** — The last substantive message explicitly directed a question or request for clarification *at the reviewer*, and the reviewer has not responded. Skip until they reply.
+> - **NON_BLOCKING** — The reviewer explicitly marked the comment as non-blocking. Signals: the 💅 emoji anywhere in the comment body; or prefixes/phrases such as `nit:`, `[nit]`, `nitpick`, `optional:`, `[optional]`, `minor:`, `[minor]`, `suggestion:`, `[suggestion]`, `non-blocking:`, `[non-blocking]`, `style:`, `[style]`, `polish`, "feel free to ignore", "up to you", "just a thought", "not a blocker".
 >
 > Lean toward **NEEDS_ACTION** when in doubt — a redundant reply is less harmful than silently skipping an open concern.
 
 Discard threads classified as `ALREADY_HANDLED` or `WAITING_ON_REVIEWER`.
 
-Result: `OPEN_THREADS[]` — the set of threads classified as `NEEDS_ACTION`.
+If `INCLUDE_NON_BLOCKING == false` (the default), also discard `NON_BLOCKING` threads; include their count in the Step 9 report so the user knows they were skipped.
+
+Result: `OPEN_THREADS[]` — the set of threads to process.
 
 If `OPEN_THREADS[]` is empty, report "No open threads to address" and stop.
 
@@ -407,6 +412,8 @@ Addressed N threads across M clusters on PR #<number>:
 - DISAGREE (K clusters): posted rationale replies
 - NEEDS_CLARIFICATION (K clusters): posted clarification questions
 - ACKNOWLEDGE (K clusters): posted brief acknowledgements
+- NON_BLOCKING skipped (J threads): not addressed — rerun with --include-non-blocking to handle them
+  <omit this line if there were no non-blocking threads, or if --include-non-blocking was passed>
 ```
 
 Call out any `BLOCKED_BY_GATES` clusters explicitly — the user needs to decide how to handle those manually.
