@@ -37,12 +37,27 @@ gh pr list --head "$(git branch --show-current)" --json number,url,state 2>/dev/
 
 From the output, determine:
 
-- **Current branch** — if it is `main` / `master`, stop and tell the user to switch to a feature branch.
+- **Current branch** — if it is `main` / `master`, see **"On main" flow** below before continuing.
 - **Existing PR?** — if `gh pr list` shows an `OPEN` PR, default to updating it (push more commits). Ask only if the user's intent is unclear.
 - **Workspaces touched** — which of `rhdp-back/`, `rhdp-front/`, `specs/`, root configs. This informs the PR body, nothing else.
 - **Spec link** — if `specs/<current-branch>/spec.md` exists, read it. Capture title + primary goal for the PR body.
 
 Report a one-line summary to the user: branch, workspaces touched, spec detected (yes/no), PR exists (yes/no).
+
+### On main flow
+
+When the current branch is `main` or `master`:
+
+1. Derive a candidate branch name from the staged/unstaged diff — use `git diff --stat HEAD` and `git log --oneline -5` to infer a short, kebab-case name (e.g. `feat/add-user-auth`).
+2. Ask the user to confirm or override the name:
+   ```
+   You're on main. I'll create branch "<candidate>" and continue — OK, or type a different name?
+   ```
+3. On confirmation (or custom name), run:
+   ```bash
+   git checkout -b "<branch-name>"
+   ```
+4. Continue from Step 2 with the new branch as the current branch.
 
 ---
 
@@ -172,7 +187,7 @@ Stop.
 
 - **Nothing modified and nothing staged** — tell the user there's nothing to ship.
 - **Only lockfile changed** — ask whether it's intentional before committing.
-- **User is on `main`** — refuse; ask them to branch first.
+- **User is on `main`** — derive a branch name from the diff, confirm with the user, `git checkout -b <name>`, then continue.
 - **`gh` not authenticated** — `gh auth status`; surface the error and stop.
 - **Working tree has files unrelated to this task** — list them and ask which belong in this PR before staging.
 - **Husky hook not installed** (`.husky/_/` missing) — run `npm install` in the affected workspace once, then retry. Do not bypass the hook.
