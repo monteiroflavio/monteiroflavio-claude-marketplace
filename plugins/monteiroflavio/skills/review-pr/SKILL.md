@@ -223,6 +223,20 @@ Collect all THREAD_EVAL blocks from Agent G (if it ran) into `THREAD_EVALUATIONS
 
 ---
 
+## Step 4.5 — Obtain App Token for Posting
+
+Before posting any comment, fetch a fresh installation token from the lineu-silva GitHub App:
+
+```bash
+APP_TOKEN=$(gh-app-token $OWNER/$REPO)
+```
+
+If `gh-app-token` is not found in PATH or returns an error, stop and report the error to the user — do not fall back to posting as the authenticated user.
+
+All `gh` commands in Steps 5, 5.5, and 6 that write to GitHub **must** be prefixed with `GH_TOKEN=$APP_TOKEN`. Read-only commands (Steps 1–4) use the default `gh` auth.
+
+---
+
 ## Step 5 — Post Inline Comments to GitHub
 
 Run sequentially (GitHub API rate limits apply). For each finding, choose the right action:
@@ -233,7 +247,7 @@ Run sequentially (GitHub API rate limits apply). For each finding, choose the ri
 cat > /tmp/review_comment.txt << 'COMMENT'
 <formatted_comment_body>
 COMMENT
-gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments \
+GH_TOKEN=$APP_TOKEN gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments \
   --method POST \
   --field commit_id="<head_commit_sha>" \
   --field path="<file_path>" \
@@ -252,7 +266,7 @@ gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments \
 
 If `line` is 0 (file-level finding) or the line cannot be resolved (deleted file, binary, generated file), post as a PR-level comment instead:
 ```bash
-gh pr comment $PR_NUMBER --repo $OWNER/$REPO --body "<formatted_comment_body>"
+GH_TOKEN=$APP_TOKEN gh pr comment $PR_NUMBER --repo $OWNER/$REPO --body "<formatted_comment_body>"
 ```
 
 ### Action: REINFORCE — reply to an existing comment thread
@@ -260,7 +274,7 @@ gh pr comment $PR_NUMBER --repo $OWNER/$REPO --body "<formatted_comment_body>"
 Use the existing comment's `id` as the `in_reply_to` parameter. This keeps the discussion threaded.
 
 ```bash
-gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments \
+GH_TOKEN=$APP_TOKEN gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments \
   --method POST \
   --field commit_id="<head_commit_sha>" \
   --field in_reply_to=<existing_comment_id> \
@@ -269,7 +283,7 @@ gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments \
 
 For PR-level comments (from `EXISTING_GENERAL[]`), reply as a new comment quoting the original:
 ```bash
-gh pr comment $PR_NUMBER --repo $OWNER/$REPO \
+GH_TOKEN=$APP_TOKEN gh pr comment $PR_NUMBER --repo $OWNER/$REPO \
   --body "> <first line of existing comment>\n\n<reinforcement_body>"
 ```
 
@@ -278,14 +292,14 @@ Reinforcement tone: briefly agree and add any extra context or impact that the o
 ### Action: EDIT — update own existing comment
 
 ```bash
-gh api repos/$OWNER/$REPO/pulls/comments/<existing_comment_id> \
+GH_TOKEN=$APP_TOKEN gh api repos/$OWNER/$REPO/pulls/comments/<existing_comment_id> \
   --method PATCH \
   --field body="<updated_comment_body>"
 ```
 
 For PR-level own comments, use:
 ```bash
-gh api repos/$OWNER/$REPO/issues/comments/<existing_comment_id> \
+GH_TOKEN=$APP_TOKEN gh api repos/$OWNER/$REPO/issues/comments/<existing_comment_id> \
   --method PATCH \
   --field body="<updated_comment_body>"
 ```
@@ -344,7 +358,7 @@ cat > /tmp/thread_reply.txt << 'REPLY'
 <reply from THREAD_EVAL>
 REPLY
 
-gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments \
+GH_TOKEN=$APP_TOKEN gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments \
   --method POST \
   --field commit_id="<head_commit_sha>" \
   --field in_reply_to=<comment_id from THREAD_EVAL> \
@@ -356,7 +370,7 @@ gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments \
 Resolve the thread (via GraphQL) **only** when `outcome` is `RESOLVED` or `ACCEPTED_PUSHBACK`:
 
 ```bash
-gh api graphql -f query='
+GH_TOKEN=$APP_TOKEN gh api graphql -f query='
 mutation($threadId: ID!) {
   resolveReviewThread(input: {threadId: $threadId}) {
     thread { id isResolved }
@@ -375,7 +389,7 @@ After all inline comments and thread replies are posted, submit the final review
 ### Verdict: BLOCKING findings exist → REQUEST_CHANGES
 
 ```bash
-gh pr review $PR_NUMBER --repo $OWNER/$REPO --request-changes --body "$(cat <<'EOF'
+GH_TOKEN=$APP_TOKEN gh pr review $PR_NUMBER --repo $OWNER/$REPO --request-changes --body "$(cat <<'EOF'
 ## Review: Changes Requested
 
 Reviewed the actual code changes. Found **<N> blocking issue(s)** that must be resolved before merge.
@@ -401,7 +415,7 @@ EOF
 ### Verdict: Only NAIL-POLISH findings (or none) → APPROVE with notes
 
 ```bash
-gh pr review $PR_NUMBER --repo $OWNER/$REPO --approve --body "$(cat <<'EOF'
+GH_TOKEN=$APP_TOKEN gh pr review $PR_NUMBER --repo $OWNER/$REPO --approve --body "$(cat <<'EOF'
 ## Review: Approved ✓
 
 The implementation looks solid. Left <N> optional suggestion(s) inline — act on them or not, they won't block merge.
@@ -429,7 +443,7 @@ EOF
 ### Verdict: Zero findings → APPROVE cleanly
 
 ```bash
-gh pr review $PR_NUMBER --repo $OWNER/$REPO --approve --body "$(cat <<'EOF'
+GH_TOKEN=$APP_TOKEN gh pr review $PR_NUMBER --repo $OWNER/$REPO --approve --body "$(cat <<'EOF'
 ## Review: Approved ✓
 
 Clean implementation across all checked dimensions: code quality, security, architecture, test coverage, and regression risk.
