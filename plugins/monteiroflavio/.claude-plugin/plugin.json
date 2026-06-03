@@ -1,5 +1,5 @@
 {
   "name": "monteiroflavio",
-  "version": "1.2.0",
-  "description": "Personal skills for workflow automation (sync-main, fix-ci-failures, create-pr, review-pr, address-pr-comments)"
+  "version": "1.3.0",
+  "description": "Personal skills for workflow automation (sync-main, fix-ci-failures, create-pr, review-pr, address-pr-comments, quality-gate-setup)"
 }
