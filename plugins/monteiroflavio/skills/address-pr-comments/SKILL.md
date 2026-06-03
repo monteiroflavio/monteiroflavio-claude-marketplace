@@ -77,7 +77,7 @@ gh api repos/$OWNER/$REPO/issues/$PR_NUMBER/comments \
   --jq '[.[] | {id, body, author: .user.login, created_at}]'
 ```
 
-In parallel with the above, invoke `monteiroflavio:fetch-pr-threads` via Agent, passing the PR URL. Store the returned list as `THREADS[]`.
+In parallel with the above, invoke `monteiroflavio:fetch-pr-threads` via the Skill tool (args: the PR URL). Store the returned list as `THREADS[]`.
 
 Store:
 - `CURRENT_USER` — login from `gh api user`

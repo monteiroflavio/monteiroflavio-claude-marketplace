@@ -56,13 +56,41 @@ Discard threads where `isResolved == true`.
 
 ## Step 3 — Enrich with Diff Context
 
-For each remaining thread, fetch the diff for that file:
+Fetch the full PR diff once, then extract per-file sections:
 
 ```bash
-gh pr diff $PR_NUMBER --repo $OWNER/$REPO -- <path>
+gh pr diff $PR_NUMBER --repo $OWNER/$REPO > /tmp/pr_full_diff.txt
 ```
 
-Run these in parallel where possible — one call per unique `path`; re-use the result for multiple threads on the same file.
+```bash
+python3 - <<'PYEOF'
+import json
+
+with open('/tmp/pr_full_diff.txt') as f:
+    content = f.read()
+
+sections = {}
+current_file = None
+current_lines = []
+
+for line in content.splitlines(keepends=True):
+    if line.startswith('diff --git '):
+        if current_file:
+            sections[current_file] = ''.join(current_lines)
+        parts = line.split(' ')
+        current_file = parts[2][2:] if len(parts) >= 3 else None  # strip "a/"
+        current_lines = [line]
+    elif current_file is not None:
+        current_lines.append(line)
+
+if current_file:
+    sections[current_file] = ''.join(current_lines)
+
+print(json.dumps(sections))
+PYEOF
+```
+
+Store the result as `FILE_DIFFS` (dict keyed by file path). For each thread, set `diffContext = FILE_DIFFS[thread.path]`. If a path is missing from `FILE_DIFFS`, set `diffContext: null` and note the missing path.
 
 ## Output
 
