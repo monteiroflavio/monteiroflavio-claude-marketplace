@@ -48,16 +48,12 @@ Report a one-line summary to the user: branch, workspaces touched, spec detected
 
 When the current branch is `main` or `master`:
 
-1. Derive a candidate branch name from the staged/unstaged diff — use `git diff --stat HEAD` and `git log --oneline -5` to infer a short, kebab-case name (e.g. `feat/add-user-auth`).
-2. Ask the user to confirm or override the name:
-   ```
-   You're on main. I'll create branch "<candidate>" and continue — OK, or type a different name?
-   ```
-3. On confirmation (or custom name), run:
+1. Derive a branch name from the staged/unstaged diff — use `git diff --stat HEAD` and `git log --oneline -5` to infer a short, kebab-case name (e.g. `feat/add-user-auth`).
+2. Run immediately:
    ```bash
    git checkout -b "<branch-name>"
    ```
-4. Continue from Step 2 with the new branch as the current branch.
+3. Tell the user the branch name you created (one line), then continue from Step 2.
 
 ---
 
@@ -187,7 +183,7 @@ Stop.
 
 - **Nothing modified and nothing staged** — tell the user there's nothing to ship.
 - **Only lockfile changed** — ask whether it's intentional before committing.
-- **User is on `main`** — derive a branch name from the diff, confirm with the user, `git checkout -b <name>`, then continue.
+- **User is on `main`** — derive a branch name from the diff, `git checkout -b <name>` immediately, tell the user the chosen name, then continue.
 - **`gh` not authenticated** — `gh auth status`; surface the error and stop.
 - **Working tree has files unrelated to this task** — list them and ask which belong in this PR before staging.
 - **Husky hook not installed** (`.husky/_/` missing) — run `npm install` in the affected workspace once, then retry. Do not bypass the hook.
