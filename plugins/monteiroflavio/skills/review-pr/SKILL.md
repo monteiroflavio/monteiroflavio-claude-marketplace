@@ -5,6 +5,7 @@ allowed-tools:
   - Bash
   - Read
   - Agent
+  - Skill
   - AskUserQuestion
 ---
 
@@ -65,7 +66,7 @@ gh api repos/$OWNER/$REPO/issues/$PR_NUMBER/comments \
   --jq '[.[] | {id,body,author: .user.login}]'
 ```
 
-In parallel with the above, invoke `monteiroflavio:fetch-pr-threads` via Agent, passing the PR URL. Store the returned list as `REVIEW_THREADS[]`.
+In parallel with the above, invoke `monteiroflavio:fetch-pr-threads` via Skill, passing the PR URL. Store the returned list as `REVIEW_THREADS[]`.
 
 Store:
 - `CURRENT_USER` — the login returned by `gh api user`
