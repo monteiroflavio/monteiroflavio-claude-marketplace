@@ -9,7 +9,7 @@
 # redundant runs when nothing actually changed. The snapshot is saved only
 # on full pass, so failing gates keep re-running until they're fixed.
 
-set -uo pipefail
+set -u
 
 PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
 CONFIG="$PROJECT_ROOT/.claude/quality-gates"
@@ -18,22 +18,25 @@ CONFIG="$PROJECT_ROOT/.claude/quality-gates"
 
 # Returns a single checksum representing the content of every file currently
 # shown by git status. Immune to mtime-only changes; includes untracked files.
+# Always exits 0 — individual file failures are recorded as a sentinel string
+# so a temporarily unreadable file doesn't silently kill the hook.
 compute_snapshot() {
   local status_output
   status_output=$(git -C "$PROJECT_ROOT" status --porcelain 2>/dev/null) || true
-  [ -z "$status_output" ] && echo "empty" && return
+  [ -z "$status_output" ] && echo "empty" && return 0
 
-  echo "$status_output" | while IFS= read -r entry; do
+  while IFS= read -r entry; do
     file="${entry:3}"
     # Renames are shown as "old -> new" — use the new path
     [[ "$file" == *" -> "* ]] && file="${file##* -> }"
     filepath="$PROJECT_ROOT/$file"
     if [ -f "$filepath" ]; then
-      cksum "$filepath"
+      cksum "$filepath" 2>/dev/null || echo "unreadable:$file"
     else
-      echo "gone $file"
+      echo "gone:$file"
     fi
-  done | sort | cksum | awk '{print $1}'
+  done <<< "$status_output" | sort | cksum | awk '{print $1}'
+  return 0
 }
 
 SNAPSHOT_KEY=$(printf '%s' "$PROJECT_ROOT" | cksum | awk '{print $1}')
