@@ -31,7 +31,9 @@ ls ~/.claude/plugins/cache/monteiroflavio-marketplace/monteiroflavio/*/hooks/qua
 
 If the glob returns nothing, the plugin cache is missing or stale — tell the user to re-sync the plugin and stop.
 
-### Step 2 — Install the runner
+### Step 2 — Install (or upgrade) the runner
+
+Always copy — this doubles as an upgrade path when the plugin updates:
 
 ```bash
 mkdir -p ~/.claude/hooks
@@ -58,8 +60,8 @@ Write the updated settings back. Do not disturb any other hook entries.
 
 ### Step 4 — Confirm
 
-Tell the user:
-> Global hook installed. Claude will now run `.claude/quality-gates` at the end of every session where that file exists. Run `/quality-gate-setup` again inside any project to create the config file.
+Tell the user whether this was a fresh install or an upgrade, then:
+> Hook ready. Claude will run `.claude/quality-gates` at the end of every turn where that file exists. Re-run `/quality-gate-setup` after plugin updates to pull in the latest runner. Run it inside any project to create the config file.
 
 ---
 
@@ -113,7 +115,7 @@ Tell the user the gates that were configured and remind them that the global hoo
 ## Edge cases
 
 - **`~/.claude/hooks/` does not exist** — create it in Step 2.
-- **Stop hook already wired** — skip Step 3 of Mode 1; confirm it is already installed.
+- **Stop hook already wired** — skip Step 3 of Mode 1 (don't add a duplicate entry); Step 2 still runs to upgrade the script.
 - **Plugin cache has multiple versions** — use `tail -1` to pick the latest (lexicographic order is sufficient for version directories).
 - **Not in a git repo** — the hook gracefully exits 0 at runtime; warn the user that `$PWD` will be used as the project root instead of git root.
 - **User wants to uninstall** — remove `~/.claude/hooks/quality-gates.sh` and the matching entry from `hooks.Stop` in `~/.claude/settings.json`.
