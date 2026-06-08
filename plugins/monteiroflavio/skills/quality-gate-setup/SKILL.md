@@ -91,20 +91,27 @@ Write `.claude/quality-gates` at the git root. Format:
 <command 2>
 ```
 
-Example for a monorepo with backend and frontend:
+Every gate command receives two environment variables:
+
+- **`QUALITY_GATE_CHANGED_FILES`** — newline-separated list of changed file paths, relative to the git root. Use this to limit checks to only the files that changed.
+- **`QUALITY_GATE_PROJECT_ROOT`** — absolute path to the git root, so scripts can build file paths reliably.
+
+For **monolithic repos** (multiple apps in one repo), prefix any command with `@<dir>` to scope it to a directory. The hook auto-skips the command when no changed file lives under that directory — no script changes required:
 
 ```
-# ESLint baseline
-node scripts/check-eslint-baseline.js backend
-node scripts/check-eslint-baseline.js frontend
+# Only runs when rhdp-back/ has changes
+@rhdp-back node scripts/check-eslint-baseline.js backend
+@rhdp-front node scripts/check-eslint-baseline.js frontend
 
 # Type checking
-node scripts/check-typecheck-baseline.js backend
-node scripts/check-typecheck-baseline.js frontend
+@rhdp-back node scripts/check-typecheck-baseline.js backend
+@rhdp-front node scripts/check-typecheck-baseline.js frontend
 
 # API usage
 node scripts/validate-api-usage.js --changed
 ```
+
+Skipped commands are shown with `⊘` in the output and do not count toward the gate total. Commands without a `@<dir>` prefix always run (backwards-compatible with existing configs).
 
 ### Step 4 — Confirm
 
