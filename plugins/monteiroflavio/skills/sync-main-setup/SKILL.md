@@ -4,8 +4,6 @@ description: Use when the user wants to install or re-install the sync-main User
 allowed-tools:
   - Bash
   - Read
-  - Edit
-  - Write
 ---
 
 # sync-main-setup
@@ -40,20 +38,26 @@ chmod +x ~/.claude/hooks/sync-main.sh
 
 ## Step 3 — Wire the UserPromptSubmit hook in settings.json
 
-Read `~/.claude/settings.json`. Add the following entry to the `hooks.UserPromptSubmit` array **only if it is not already present** (check for `sync-main.sh` in any existing UserPromptSubmit command). Also remove any `sync-main.sh` entry from `hooks.SessionStart` if present — the two must not coexist.
+Use `jq` to modify `~/.claude/settings.json` — never manually edit JSON, as it will produce missing commas or unclosed brackets.
 
-```json
-{
-  "hooks": [
-    {
-      "type": "command",
-      "command": "~/.claude/hooks/sync-main.sh"
-    }
-  ]
-}
+**Check if already wired and add if missing:**
+```bash
+if jq -e '.hooks.UserPromptSubmit // [] | .[].hooks // [] | .[] | select(.command | test("sync-main.sh"))' ~/.claude/settings.json > /dev/null 2>&1; then
+  echo "already-wired"
+else
+  jq '.hooks.UserPromptSubmit += [{"hooks": [{"type": "command", "command": "~/.claude/hooks/sync-main.sh"}]}]' \
+    ~/.claude/settings.json > ~/.claude/settings.json.tmp && \
+    mv ~/.claude/settings.json.tmp ~/.claude/settings.json
+  echo "added"
+fi
 ```
 
-Write the updated settings back. Do not disturb any other hook entries.
+**Remove from SessionStart if present (the two must not coexist):**
+```bash
+jq 'if .hooks.SessionStart then .hooks.SessionStart |= map(select((.hooks // []) | map(.command) | any(test("sync-main.sh")) | not)) else . end' \
+  ~/.claude/settings.json > ~/.claude/settings.json.tmp && \
+  mv ~/.claude/settings.json.tmp ~/.claude/settings.json
+```
 
 ---
 
@@ -67,7 +71,7 @@ Tell the user whether this was a fresh install or an upgrade, then:
 ## Edge cases
 
 - **`~/.claude/hooks/` does not exist** — create it in Step 2.
-- **UserPromptSubmit hook already wired** — skip Step 3 (don't add a duplicate entry); Step 2 still runs to upgrade the script.
+- **UserPromptSubmit hook already wired** — the `jq` check in Step 3 will output `already-wired` and skip adding a duplicate; Step 2 still runs to upgrade the script.
 - **SessionStart still has sync-main.sh** — remove that entry in Step 3 to avoid double-running.
 - **Plugin cache has multiple versions** — use `tail -1` to pick the latest.
 - **User wants to uninstall** — remove `~/.claude/hooks/sync-main.sh` and the matching entry from `hooks.UserPromptSubmit` in `~/.claude/settings.json`.
