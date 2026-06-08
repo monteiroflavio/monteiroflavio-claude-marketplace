@@ -59,11 +59,15 @@ When the current branch is `main` or `master`:
 
 ## Step 2 — Stage
 
-List the files to stage explicitly (never `git add -A`):
+List the files to stage explicitly (never `git add -A`).
+
+**Always anchor `git add` at the repo root** to avoid double-prefix errors when the CWD is a subdirectory:
 
 ```bash
-git add <path1> <path2> ...
+git -C "$(git rev-parse --show-toplevel)" add <path1> <path2> ...
 ```
+
+Paths here are relative to the repo root (as shown by `git status --porcelain`).
 
 Include files the user modified or created in this session.
 
