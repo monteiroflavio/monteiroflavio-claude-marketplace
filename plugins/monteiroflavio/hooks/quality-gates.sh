@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Quality Gates Runner — reads .claude/quality-gates from the project root and
 # runs each line as a shell command. Blank lines and # comments are skipped.
-# Exit 1 if any gate fails; Claude will feed the output back and continue fixing.
+# Exit 2 if any gate fails; Claude will feed the output back and continue fixing.
 #
 # Snapshot strategy: computes a content hash of every file reported by
 # `git status --porcelain` (both tracked modifications and untracked files).
@@ -126,16 +126,22 @@ while IFS= read -r line || [ -n "$line" ]; do
   fi
 done < "$CONFIG"
 
+if [ "$failed" -gt 0 ]; then
+  {
+    echo ""
+    echo "[quality-gates] $total gate(s) checked"
+    for l in "${output_lines[@]}"; do echo "$l"; done
+    echo ""
+    echo "[quality-gates] $failed gate(s) failed — fix the issues above before finishing."
+  } >&2
+  # No snapshot save: failed gates re-run on every Stop until fixed
+  exit 2
+fi
+
 echo ""
 echo "[quality-gates] $total gate(s) checked"
 for l in "${output_lines[@]}"; do echo "$l"; done
 echo ""
-
-if [ "$failed" -gt 0 ]; then
-  echo "[quality-gates] $failed gate(s) failed — fix the issues above before finishing."
-  # No snapshot save: failed gates re-run on every Stop until fixed
-  exit 1
-fi
 
 # All passed: save post-gate snapshot so gate-generated file updates
 # (e.g. auto-lowered baselines) are captured and don't re-trigger next Stop
