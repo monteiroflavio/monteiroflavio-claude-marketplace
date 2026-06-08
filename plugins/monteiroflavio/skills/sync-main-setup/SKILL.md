@@ -1,6 +1,6 @@
 ---
 name: sync-main-setup
-description: Use when the user wants to install or re-install the sync-main SessionStart hook globally. Triggers on "setup sync-main", "install sync-main hook", "auto-sync with main on session start".
+description: Use when the user wants to install or re-install the sync-main UserPromptSubmit hook globally. Triggers on "setup sync-main", "install sync-main hook", "auto-sync with main on session start".
 allowed-tools:
   - Bash
   - Read
@@ -10,7 +10,7 @@ allowed-tools:
 
 # sync-main-setup
 
-Installs the sync-main hook globally so that every Claude Code session automatically syncs the current branch with `origin/main` on start.
+Installs the sync-main hook globally so that every Claude Code session automatically syncs the current branch with `origin/main` on the first user prompt. The hook outputs a `systemMessage` JSON so Claude surfaces the result inline — fully visible in the conversation, not lost in terminal flush.
 
 ---
 
@@ -38,9 +38,9 @@ chmod +x ~/.claude/hooks/sync-main.sh
 
 ---
 
-## Step 3 — Wire the SessionStart hook in settings.json
+## Step 3 — Wire the UserPromptSubmit hook in settings.json
 
-Read `~/.claude/settings.json`. Add the following entry to the `hooks.SessionStart` array **only if it is not already present** (check for `sync-main.sh` in any existing SessionStart command):
+Read `~/.claude/settings.json`. Add the following entry to the `hooks.UserPromptSubmit` array **only if it is not already present** (check for `sync-main.sh` in any existing UserPromptSubmit command). Also remove any `sync-main.sh` entry from `hooks.SessionStart` if present — the two must not coexist.
 
 ```json
 {
@@ -60,13 +60,14 @@ Write the updated settings back. Do not disturb any other hook entries.
 ## Step 4 — Confirm
 
 Tell the user whether this was a fresh install or an upgrade, then:
-> Hook ready. Claude will automatically sync with `origin/main` at the start of every session. If the tree is dirty or conflicts arise, a message will prompt you to run `/monteiroflavio:sync-main` to finish. Re-run `/sync-main-setup` after plugin updates to pull in the latest script.
+> Hook ready. On your first message each session, Claude will automatically sync with `origin/main` and mention the result if anything changed. If the tree is dirty or conflicts arise, Claude will prompt you to run `/monteiroflavio:sync-main` to finish. Re-run `/sync-main-setup` after plugin updates to pull in the latest script.
 
 ---
 
 ## Edge cases
 
 - **`~/.claude/hooks/` does not exist** — create it in Step 2.
-- **SessionStart hook already wired** — skip Step 3 (don't add a duplicate entry); Step 2 still runs to upgrade the script.
+- **UserPromptSubmit hook already wired** — skip Step 3 (don't add a duplicate entry); Step 2 still runs to upgrade the script.
+- **SessionStart still has sync-main.sh** — remove that entry in Step 3 to avoid double-running.
 - **Plugin cache has multiple versions** — use `tail -1` to pick the latest.
-- **User wants to uninstall** — remove `~/.claude/hooks/sync-main.sh` and the matching entry from `hooks.SessionStart` in `~/.claude/settings.json`.
+- **User wants to uninstall** — remove `~/.claude/hooks/sync-main.sh` and the matching entry from `hooks.UserPromptSubmit` in `~/.claude/settings.json`.
